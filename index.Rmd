@@ -1,0 +1,124 @@
+---
+title: "Practical ML Course Project: Predicting Exercise Intensity with Machine Learning"
+author: "Fikir Worku Edossa"
+date: "5/8/2020"
+output: 
+        html_document:
+                theme: spacelab
+                toc: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r results='hide', warning=FALSE, message=FALSE}
+NeededPackages <- c("datasets", "dplyr", "ggplot2", "caret", "reshape2", "tibble")
+lapply(NeededPackages, require, character.only = TRUE)
+```
+
+## Introduction
+
+The analysis below is completed as part of the evaluation requirement for the Coursera, Johns Hopkins Data Science Specialization - Practical Machine Learning course. In this report a data set on sport activity is provided with a goal of training a model that can classify the intensity of an activity based on a number of covariates that are provided. The report provides a reproducible analysis that starts from the raw data and ends with a highly accurate Random Forest model, with an out of sample accuracy > 99%. In doing so it highlights the care that should be taken when building ML models. 
+
+## Data Preparation 
+
+The structure of the data preparation will aim to optimize the computational requirement of the analysis. It will first and foremost aim to clean up the major short comings of the data. This is done to ensure that as much of the unnecessary data is removed before being passed to a downstream analysis. 
+
+### Loading the data
+
+The very first thing that needs to be implemented is to download the necessary data for both groups. 
+```{r catch = TRUE}
+urlTrain <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+urlTest <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+download.file(urlTrain, destfile = "Train.csv")
+download.file(urlTest, destfile = "Testing.csv")
+Testing <- as_tibble(read.csv(file = "Testing.csv", header = T, sep = ",", stringsAsFactors = TRUE))
+Training <- as_tibble(read.csv(file = "Train.csv", header = T, sep = ",", stringsAsFactors = TRUE))
+```
+
+### Uniqe Identifieres
+
+Before proceeding with model fitting, it is important to remove the X variable which is just a row count variable. The reasoning for this is demonstrated in the code below. 
+
+```{r}
+rowNumber <- seq(1:length(Training$X))
+identical(rowNumber, Training$X)
+```
+
+This is exactly the behavior of the X variable in the test data and the reason as to why it has to be removed. Because the data sets are ordered on the target variable, a model training, that leaves the X variable in the training set, would be perfect model in the in sample prediction but very poor in out of sample prediction.  
+
+```{r}
+Testing <- Testing[, -c(1)]
+Training <- Training[, -c(1)]
+```
+
+### Non Varying Features
+
+It is clear from the description of the data set that there are a lot of non varying variables that can not be used to explain any variation in the target variable. Hence, it is important to remove this variables from the data set, so they do not cause computational complexity. Since, the main task is to predict the target variable in the quiz test set, any variable that does not show variation in there is not useful in predicting the target outcome. The command below captures non varying variables in the validation data set and removes them from the training data set.
+
+```{r}
+ZeroVar <- nearZeroVar(x = Testing, freqCut = 99/1, saveMetrics = FALSE)
+NearZero <- Training[, ZeroVar]
+Training <- Training[, -ZeroVar]
+Testing <- Testing[,-ZeroVar]
+
+```
+
+### Training, Testing & Validation Sets
+
+With the data sets prepared, creation of a validation set is necessary to measure accuracy of fitted models with an out of sample accuracy. Hence, in what follows the analysis will break the "Training" data into an actual training and validation sets with a 3:1 split. Afterwards, different algorithms are going to be trained on the actual training data and validated with the validation set, until a sufficiently good model is derived. Once a sufficiently good model is achieved, it is applied on the test data to get an estimates for the quiz. 
+
+```{r}
+inTrain <- createDataPartition(y=Training$classe, p= 0.75, list = FALSE)
+Validation <- Training[-inTrain, ]
+Training <- Training[inTrain,]
+```
+
+## Modeling
+
+### Clasification Trees
+
+```{r catch = TRUE}
+modFitCT <- train(classe ~ ., data = Training, method = "rpart" )
+rattle::fancyRpartPlot(modFitCT$finalModel, sub = NULL)
+```
+
+```{r}
+# In sample error 
+confusionMatrix(predict(modFitCT, Training), Training$classe)     
+
+# OUt of sample error    
+pred <- predict(modFitCT, newdata = Validation[,-58])
+
+confusionMatrix(pred, Validation$classe)
+```
+
+A classification train has been successfully trained. However, the accuracy rate of the classification tree leaves a lot more to be desired. In the next step the analysis will train and test a random forest algorithm. 
+
+### Random Forest
+
+
+```{r catch=TRUE}
+modFitRF <- randomForest::randomForest(classe ~ ., data = Training) 
+```
+
+```{r}
+# In sample error 
+confusionMatrix(predict(modFitRF, Training), Training$classe)     
+
+# OUt of sample error    
+pred <- predict(modFitRF, newdata = Validation[,-58])
+
+confusionMatrix(pred, Validation$classe)
+```
+
+## Results
+
+Under normal conditions more model tuning and ensambling would be used to further increase the accuracy of the final model used for prediction. However, the Random Forest model trained above is already highly accurate with an in sample accuracy rate of `r confusionMatrix(predict(modFitRF, Training), Training$classe)$overall[[1]]` and out of sample accuracy rate of `r confusionMatrix(pred, Validation$classe)$overall[[1]]`. The analysis will therefore not proceed further. But rather use this Random Forest model to predict the classes of the testing data. To not violate the Coursera Honor Code the results are not printed here. 
+
+```{r eval=FALSE}
+Testing <- rbind(Training[1, -58] , Testing[,-58])
+Testing <- Testing[-1,]
+predict(modFitRF, newdata = Testing)
+```
